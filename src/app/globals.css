@@ -22,3 +22,12 @@ body {
   font-weight: medium;  
   font-size: 14px;
 }
+
+.dragging{
+  background: #7F858D;
+  color: white;
+}
+.overDrag {
+    background: #aeb6c2;
+    color: white;
+}

@@ -1,258 +1,187 @@
 "use client";
 
-import { usePathname } from "next/navigation";
-import Tab from "./tab";
-import clsx from "clsx";
-import { useEffect, useRef, useState } from "react";
-import { Link } from "@/types/links";
-import Image from "next/image";
-import { DragDropContext } from "@hello-pangea/dnd";
+import { Link, LocalStorageLinks } from "@/types/links";
+
+import Overflow from "./overflow";
+import Pinned from "./pinned";
+import Visible from "./visible";
+
+import { useLayoutEffect, useRef } from "react";
+import { useLocalStorage } from "../lib/localStorageData";
+import isEqual from "lodash.isequal";
 
 const navbarLinks: Link[] = [
-  { href: "/dashboard", label: "Dashboard", icon: "/icons/dashboard.svg" },
-  { href: "/banking", label: "Banking", icon: "/icons/banking.svg" },
+  {
+    href: "/dashboard",
+    label: "Dashboard",
+    icon: "/icons/dashboard.svg",
+    pinned: false,
+  },
+  {
+    href: "/banking",
+    label: "Banking",
+    icon: "/icons/banking.svg",
+    pinned: false,
+  },
   {
     href: "/telefonie",
     label: "Telefonie",
     icon: "/icons/telefonie.svg",
+    pinned: false,
   },
   {
     href: "/accounting",
     label: "Accounting",
     icon: "/icons/accounting.svg",
+    pinned: false,
   },
-  { href: "/verkauf", label: "Verkauf", icon: "/icons/verkauf.svg" },
+  {
+    href: "/verkauf",
+    label: "Verkauf",
+    icon: "/icons/verkauf.svg",
+    pinned: false,
+  },
   {
     href: "/statistik",
     label: "Statistik",
     icon: "/icons/statistik.svg",
+    pinned: false,
   },
   {
     href: "/postOffice",
     label: "Post Office",
     icon: "/icons/post_office.svg",
+    pinned: false,
   },
   {
     href: "/administration",
     label: "Administration",
     icon: "/icons/administration.svg",
+    pinned: false,
   },
-  { href: "/help", label: "Help", icon: "/icons/help.svg" },
+  {
+    href: "/help",
+    label: "Help",
+    icon: "/icons/help.svg",
+    pinned: false,
+  },
   {
     href: "/warenbestand",
     label: "Warenbestand",
     icon: "/icons/warenbestand.svg",
+    pinned: false,
   },
   {
     href: "/auswahllisten",
     label: "Auswahllisten",
     icon: "/icons/auswahllisten.svg",
+    pinned: false,
   },
-  { href: "/einkauf", label: "Einkauf", icon: "/icons/einkauf.svg" },
-  { href: "/rechn", label: "Rechn", icon: "/icons/rechn.svg" },
+  {
+    href: "/einkauf",
+    label: "Einkauf",
+    icon: "/icons/einkauf.svg",
+    pinned: false,
+  },
+  {
+    href: "/rechn",
+    label: "Rechn",
+    icon: "/icons/rechn.svg",
+    pinned: false,
+  },
 ];
 
 export default function NavBar() {
-  const path = usePathname();
+  const [links, setLinks] = useLocalStorage<LocalStorageLinks>("links", {
+    visible: navbarLinks,
+    overflow: [],
+  });
+
   const containerRef = useRef<HTMLDivElement>(null);
-  const [overflowOpen, setOverflowOpen] = useState<boolean>(false);
-  const [visibleLinks, setVisibleLinks] = useState<Link[]>([]);
-  const [overflowLinks, setOverflowLinks] = useState<Link[]>([]);
-  const [pinned, setPinned] = useState<Link[]>([]);
-  const [isHoveredVisible, setIsHoveredVisible] = useState<string | null>(null);
-  const [isHoveredPined, setIsHoveredPined] = useState<string | null>(null);
+  const linksRef = useRef(new Map<string, HTMLDivElement>());
 
-  useEffect(() => {
-    try {
-      const getVisibleLinks = localStorage.getItem("visibleLinks");
-      const getOverflowLinks = localStorage.getItem("overflowLinks");
-      const getPinnedLinks = localStorage.getItem("pinnedLinks");
-      if (getVisibleLinks) {
-        const parsed = JSON.parse(getVisibleLinks);
-        setVisibleLinks(
-          Array.isArray(parsed) && parsed.length > 0 ? parsed : navbarLinks
-        );
-      }
-      setOverflowLinks(getOverflowLinks ? JSON.parse(getOverflowLinks) : []);
-      setPinned(getPinnedLinks ? JSON.parse(getPinnedLinks) : []);
-    } catch (er) {
-      console.error(er);
-    }
-  }, []);
+  useLayoutEffect(() => {
+    if (!containerRef.current) return;
+    const container = containerRef.current;
 
-  useEffect(() => {
-    localStorage.setItem("visibleLinks", JSON.stringify(visibleLinks));
-  }, [visibleLinks]);
-
-  useEffect(() => {
-    localStorage.setItem("overflowLinks", JSON.stringify(overflowLinks));
-  }, [overflowLinks]);
-
-  useEffect(() => {
-    localStorage.setItem("pinnedLinks", JSON.stringify(pinned));
-  }, [pinned]);
-
-  const setNewPinned = (link: Link) => {
-    const isExist = pinned.some((l) => l.href === link.href);
-    if (isExist) {
-      setPinned((prev) => prev.filter((item) => item.href !== link.href));
-      setVisibleLinks((prev) => [...prev, link]);
-    } else {
-      setPinned((prev) => [...prev, link]);
-      setVisibleLinks((prev) => prev.filter((el) => el.href !== link.href));
-      setOverflowLinks((prev) => prev.filter((el) => el.href !== link.href));
-    }
-  };
-
-  const openOverflowsLinks = () => {
-    setOverflowOpen((prev) => !prev);
-  };
-
-  useEffect(() => {
     const handleResize = () => {
-      const container = containerRef.current;
-      if (!container) return;
+      const containerWidth = container.getBoundingClientRect().width;
 
-      const children = Array.from(container.children) as HTMLElement[];
-      const containerWidth = container.offsetWidth;
+      setLinks((prev) => {
+        let usedWidth = 0;
+        const allLinks = [...prev.visible, ...prev.overflow];
+        const visible: Link[] = [...allLinks.filter((el) => el.pinned)];
+        const overflow: Link[] = [];
 
-      if (!pinned) return;
-      const unPinned = navbarLinks.filter(
-        (el) => !pinned.some((p) => p.href === el.href)
-      );
+        allLinks
+          .filter((el) => !el.pinned)
+          .forEach((link, i) => {
+            const child = linksRef.current.get(link.href);
+            if (!child) return overflow.push(link);
 
-      let usedWidth = 0;
-      const visible: Link[] = [];
-      const overflow: Link[] = [];
+            const childWidth = child.getBoundingClientRect().width;
 
-      unPinned.forEach((link, i) => {
-        const childWidth = children[i]?.offsetWidth || 0;
-        usedWidth += childWidth;
-        if (usedWidth < containerWidth - 50) {
-          visible.push(link);
-        } else {
-          overflow.push(link);
+            if (usedWidth + childWidth <= containerWidth) {
+              visible.push(link);
+              usedWidth += childWidth;
+            } else {
+              overflow.push(link);
+            }
+          });
+
+        if (
+          !isEqual(prev.visible, visible) ||
+          !isEqual(prev.overflow, overflow)
+        ) {
+          return { overflow, visible };
         }
+        return prev;
       });
-
-      setVisibleLinks(visible);
-      setOverflowLinks(overflow);
     };
 
-    handleResize();
-    window.addEventListener("resize", handleResize);
+    const resizeObserve = new ResizeObserver(handleResize);
+    resizeObserve.observe(container);
 
-    return () => window.removeEventListener("resize", handleResize);
-  }, [pinned]);
+    handleResize();
+
+    return () => resizeObserve.disconnect();
+  }, []);
+
+  const setNewPinned = (link: Link) => {
+    const newLinks = links.visible.map((el) => {
+      if (el.href === link.href) return { ...el, pinned: !el.pinned };
+      return el;
+    });
+    setLinks((prev) => ({ ...prev, visible: newLinks }));
+  };
+
+  const setRef = (id: string, el: HTMLDivElement | null) => {
+    if (el) linksRef.current.set(id, el);
+    else linksRef.current.delete(id);
+  };
+
+  const onDroped = (list: Link[]) => {
+    const newVisible = [...links.visible.filter((el) => el.pinned), ...list];
+    setLinks((prev) => ({ ...prev, visible: newVisible }));
+  };
 
   return (
-    <nav className="h-[49px] flex">
-      {pinned &&
-        pinned.map((el) => (
-          <div
-            className="relative w-auto h-auto flex-shrink-0"
-            key={el.icon}
-            onMouseEnter={() => setIsHoveredPined(el.href)}
-            onMouseLeave={() => setIsHoveredPined(null)}
-          >
-            <Tab
-              href={el.href}
-              icon={el.icon}
-              className={clsx(
-                path === el.href &&
-                  "bg-[#F1F5F8] text-[#343434] border-t-[#4690E2] border-t-2"
-              )}
-            />
-            {isHoveredPined === el.href && (
-              <button
-                onClick={() => setNewPinned(el)}
-                className={
-                  "absolute top-full w-auto transition-opacity duration-200 z-50 bg-white rounded-md border-[1px] border-[#AEB6CE33] shadow-[0,6,30,0,#7B7F9112] py-2.5 px-[15px]"
-                }
-              >
-                <Image
-                  src={"/icons/pin.svg"}
-                  alt={""}
-                  width={16}
-                  height={16}
-                  className="inline-block mr-2.5"
-                />
-                Tab anpinnen
-                {}
-              </button>
-            )}
-          </div>
-        ))}
-
-      <div className="flex relative justify-stretch w-full">
-        <div ref={containerRef} className="flex relative w-full">
-          {visibleLinks.map((el, index) => {
-            return (
-              <div
-                className="relative flex-shrink-0"
-                key={el.label}
-                onMouseEnter={() => setIsHoveredVisible(el.href)}
-                onMouseLeave={() => setIsHoveredVisible(null)}
-              >
-                <Tab
-                  href={el.href}
-                  label={el.label}
-                  icon={el.icon!}
-                  index={index}
-                  className={clsx(
-                    path === el.href &&
-                      "bg-[#F1F5F8] text-[#343434] border-t-[#4690E2] border-t-2"
-                  )}
-                />
-                {isHoveredVisible === el.href && (
-                  <button
-                    onClick={() => setNewPinned(el)}
-                    className={
-                      "absolute top-full w-auto transition-opacity duration-200 z-50 bg-white rounded-md border-[1px] border-[#AEB6CE33] shadow-[0,6,30,0,#7B7F9112] py-2.5 px-[15px]"
-                    }
-                  >
-                    <Image
-                      src={"/icons/pin.svg"}
-                      alt={""}
-                      width={16}
-                      height={16}
-                      className="inline-block mr-2.5"
-                    />
-                    Tab anpinnen
-                  </button>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        {overflowLinks.length > 0 && (
-          <button
-            className={clsx(
-              "w-9 flex justify-center items-center bg-no-repeat bg-center  bg-[length:16px_16px] duration-200",
-              !overflowOpen
-                ? "bg-[#FFFFFF] bg-[url(/icons/arrow.svg)] "
-                : "bg-[#4690E2] bg-[url(/icons/arrow_up.svg)]"
-            )}
-            onClick={openOverflowsLinks}
-          ></button>
-        )}
-        {overflowOpen && (
-          <div className="absolute right-0 top-full p-[15px] bg-[#FFFFFF] border-[1px] border-[#E9E9E9B2] divide-y-[1px] divide-[#AEB6CE33] flex flex-col items-start">
-            {overflowLinks.map(
-              (el) =>
-                el && (
-                  <Tab
-                    key={el.icon}
-                    href={el.href}
-                    icon={el.icon}
-                    label={el.label}
-                  />
-                )
-            )}
-          </div>
-        )}
-      </div>
+    <nav className="h-[48px] flex">
+      <Pinned
+        list={links.visible.filter((el) => el.pinned)}
+        setNewPinned={setNewPinned}
+        setRef={setRef}
+      />
+      <Visible
+        setNewPinned={setNewPinned}
+        links={links.visible.filter((el) => !el.pinned)}
+        containerRef={containerRef}
+        setRef={setRef}
+        onDroped={onDroped}
+      />
+      {links.overflow.length > 0 && (
+        <Overflow list={links.overflow} setRef={setRef} />
+      )}
     </nav>
   );
 }
